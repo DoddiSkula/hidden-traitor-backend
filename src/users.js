@@ -1,9 +1,9 @@
 const users = [];
 
 // join user to room
-export function userJoin(id, name, room, role, playerTurn) {
+export function userJoin(id, name, room, role = '', playerTurn = 0, turn = 1, inGame = false) {
   const user = {
-    id, name, room, role, playerTurn,
+    id, name, room, role, playerTurn, turn, inGame,
   };
   users.push(user);
   return user;

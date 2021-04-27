@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import http from 'http';
 import { Server } from 'socket.io';
 import {
-  userJoin, userLeave, getRoomUsers, getRoomHost,
+  userJoin, userLeave, getRoomUsers, getRoomHost, getCurrentUser,
 } from './users.js';
 import { giveRole, increaseTurn } from './game.js';
 
@@ -15,7 +15,7 @@ const app = express();
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.send({ response: 'I am the server!' });
+  res.send({ msg: 'I am the server for the game Hidden Traitor' });
 });
 
 const server = http.createServer(app);
@@ -33,12 +33,9 @@ io.on('connection', (socket) => {
 
   // runs when a client joins
   socket.on('join', ({ name, room }) => {
-    const user = userJoin(socket.id, name, room, '', 0);
+    const user = userJoin(socket.id, name, room);
 
     socket.join(user.room);
-
-    // new client joins
-    socket.emit('message', `${user.name} joined the game.`);
 
     // broadcast (to all clients) when a client connects
     socket.broadcast.to(user.room).emit('message', `${user.name} joined the game.`);
@@ -62,15 +59,35 @@ io.on('connection', (socket) => {
   socket.on('start-game', (player) => {
     const users = getRoomUsers(player.room);
     giveRole(users);
-    console.info(users);
     io.to(player.room).emit('starting-game', {
-      room: player.room, users, host: getRoomHost(player.room), playerTurn: 0,
+      room: player.room, users, host: getRoomHost(player.room), playerTurn: 0, turn: 1,
     });
   });
 
   // spy action
   socket.on('action-spy', (player) => {
+    io.to(player.id).emit('message-spy');
+  });
+
+  // spy on player action
+  socket.on('action-spy-on-player', (data) => {
+    const player = getCurrentUser(data.id);
+    // updata turn and info
+    const users = getRoomUsers(player.room).filter((user) => user.inGame);
+    const turns = increaseTurn(player.playerTurn, player.turn, users);
+    const { playerTurn, turn } = turns;
+    io.to(player.room).emit('action-response', {
+      player,
+      room: player.room,
+      users,
+      host: getRoomHost(player.room),
+      playerTurn,
+      turn,
+    });
+
     io.to(player.room).emit('message', `${player.name} played spy action.`);
+    io.to(player.id).emit('message', `${data.user.name} is ${data.user.role}.`);
+    io.to(data.id).emit('message-spy-on-player', data.user);
   });
 
   // switch action
@@ -80,16 +97,19 @@ io.on('connection', (socket) => {
 
   // confirm action
   socket.on('action-confirm', (player) => {
-    const users = getRoomUsers(player.room);
-    const playerTurn = increaseTurn(player.playerTurn, users);
-
-    io.to(player.room).emit('action-confirm-response', {
+    // updata turn and info
+    const users = getRoomUsers(player.room).filter((user) => user.inGame);
+    const turns = increaseTurn(player.playerTurn, player.turn, users);
+    const { playerTurn, turn } = turns;
+    io.to(player.room).emit('action-response', {
       player,
       room: player.room,
       users,
       host: getRoomHost(player.room),
       playerTurn,
+      turn,
     });
+
     io.to(player.room).emit('message', `${player.name} played confirm action.`);
     io.to(player.id).emit('message', `You are ${player.role}.`);
     io.to(player.id).emit('message-confirm', `You are ${player.role}.`);

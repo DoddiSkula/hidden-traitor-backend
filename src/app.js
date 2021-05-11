@@ -5,7 +5,9 @@ import { Server } from 'socket.io';
 import {
   userJoin, userLeave, getRoomUsers, getRoomHost, getCurrentUser,
 } from './users.js';
-import { giveRole, increaseTurn } from './game.js';
+import {
+  giveRole, increaseTurn, swapRoles, updateRole,
+} from './game.js';
 
 dotenv.config();
 
@@ -30,6 +32,20 @@ const io = new Server(server, {
 // Connection
 io.on('connection', (socket) => {
   console.info('New client connected');
+
+  function updateTurn(player) {
+    const users = getRoomUsers(player.room).filter((user) => user.inGame);
+    const turns = increaseTurn(player.playerTurn, player.turn, users);
+    const { playerTurn, turn } = turns;
+    io.to(player.room).emit('action-response', {
+      player,
+      room: player.room,
+      users,
+      host: getRoomHost(player.room),
+      playerTurn,
+      turn,
+    });
+  }
 
   // runs when a client joins
   socket.on('join', ({ name, room }) => {
@@ -69,50 +85,46 @@ io.on('connection', (socket) => {
     io.to(player.id).emit('message-spy');
   });
 
-  // spy on player action
   socket.on('action-spy-on-player', (data) => {
     const player = getCurrentUser(data.id);
-    // updata turn and info
-    const users = getRoomUsers(player.room).filter((user) => user.inGame);
-    const turns = increaseTurn(player.playerTurn, player.turn, users);
-    const { playerTurn, turn } = turns;
-    io.to(player.room).emit('action-response', {
-      player,
-      room: player.room,
-      users,
-      host: getRoomHost(player.room),
-      playerTurn,
-      turn,
-    });
+    const role = data.user.newRole ? data.user.newRole : data.user.role;
+    updateTurn(player);
 
     io.to(player.room).emit('message', `${player.name} played spy action.`);
-    io.to(player.id).emit('message', `${data.user.name} is ${data.user.role}.`);
+    io.to(player.id).emit('message', `${data.user.name} is ${role}.`);
     io.to(data.id).emit('message-spy-on-player', data.user);
   });
 
   // switch action
   socket.on('action-switch', (player) => {
+    io.to(player.id).emit('message-switch');
+  });
+
+  socket.on('action-switch-roles', (data) => {
+    swapRoles(data.selectedPlayers[0].id, data.selectedPlayers[1].id);
+    let player = getCurrentUser(data.id);
+    if (player.newRole) {
+      player = updateRole(player.id);
+    }
+    updateTurn(player);
+
     io.to(player.room).emit('message', `${player.name} played switch action.`);
+    io.to(player.id).emit('message', `You swapped the roles of ${data.selectedPlayers[0].name} and ${data.selectedPlayers[1].name}.`);
+    io.to(data.id).emit('message-switch-roles', data.selectedPlayers);
   });
 
   // confirm action
-  socket.on('action-confirm', (player) => {
-    // updata turn and info
-    const users = getRoomUsers(player.room).filter((user) => user.inGame);
-    const turns = increaseTurn(player.playerTurn, player.turn, users);
-    const { playerTurn, turn } = turns;
-    io.to(player.room).emit('action-response', {
-      player,
-      room: player.room,
-      users,
-      host: getRoomHost(player.room),
-      playerTurn,
-      turn,
-    });
+  socket.on('action-confirm', (currentPlayer) => {
+    let player = currentPlayer;
+    if (player.newRole) {
+      player = updateRole(player.id);
+    }
 
-    io.to(player.room).emit('message', `${player.name} played confirm action.`);
+    updateTurn(player);
+
     io.to(player.id).emit('message', `You are ${player.role}.`);
     io.to(player.id).emit('message-confirm', `You are ${player.role}.`);
+    io.to(player.room).emit('message', `${player.name} played confirm action.`);
   });
 });
 

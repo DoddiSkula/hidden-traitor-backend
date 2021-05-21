@@ -56,3 +56,30 @@ export function updateRole(id) {
   delete player.newRole;
   return player;
 }
+
+// cast vote on player
+export function castVote(playerID, votedPlayerID) {
+  const player = getCurrentUser(playerID);
+  const votedPlayer = getCurrentUser(votedPlayerID);
+
+  player.hasVoted = true;
+
+  if (votedPlayer.votes) {
+    votedPlayer.votes += 1;
+  } else {
+    votedPlayer.votes = 1;
+  }
+
+  return [player, votedPlayer];
+}
+
+export function cleanUp(users) {
+  users.forEach((user) => {
+    delete user.hasVoted;
+    delete user.role;
+    delete user.newRole;
+    user.playerTurn = 0;
+    user.turn = 1;
+    user.inGame = false;
+  });
+}

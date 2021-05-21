@@ -6,7 +6,7 @@ import {
   userJoin, userLeave, getRoomUsers, getRoomHost, getCurrentUser,
 } from './users.js';
 import {
-  giveRole, increaseTurn, swapRoles, updateRole,
+  giveRole, increaseTurn, swapRoles, updateRole, castVote, cleanUp,
 } from './game.js';
 
 dotenv.config();
@@ -31,8 +31,7 @@ const io = new Server(server, {
 
 // Connection
 io.on('connection', (socket) => {
-  console.info('New client connected');
-
+  // update player turn and global turn
   function updateTurn(player) {
     const users = getRoomUsers(player.room).filter((user) => user.inGame);
     const turns = increaseTurn(player.playerTurn, player.turn, users);
@@ -45,6 +44,33 @@ io.on('connection', (socket) => {
       playerTurn,
       turn,
     });
+  }
+
+  // check if game over
+  function checkGameEnd(player, users) {
+    let over = true;
+    users.forEach((user) => {
+      if (!user.hasVoted) {
+        over = false;
+      }
+    });
+    if (over) {
+      let traitor;
+      let mostVotes = 0;
+      let mostVotedPlayer;
+      users.forEach((user) => {
+        if (user.newRole) updateRole(user.id);
+        if (user.role === 'Traitor') {
+          traitor = user;
+        }
+        if (user.votes && user.votes > mostVotes) {
+          mostVotes = user.votes;
+          mostVotedPlayer = user;
+        }
+      });
+      cleanUp(users);
+      io.to(player.room).emit('game-end', { traitor, mostVotedPlayer });
+    }
   }
 
   // runs when a client joins
@@ -122,9 +148,23 @@ io.on('connection', (socket) => {
 
     updateTurn(player);
 
-    io.to(player.id).emit('message', `You are ${player.role}.`);
-    io.to(player.id).emit('message-confirm', `You are ${player.role}.`);
+    io.to(player.id).emit('message', `Your role is ${player.role}.`);
+    io.to(player.id).emit('message-confirm', `Your role is ${player.role}.`);
     io.to(player.room).emit('message', `${player.name} played confirm action.`);
+  });
+
+  // voting
+  socket.on('action-vote', (data) => {
+    const players = castVote(data.id, data.user.id);
+    const player = players[0];
+    const votedPlayer = players[1];
+
+    io.to(player.room).emit('message', `${player.name} has voted.`);
+    io.to(player.id).emit('message', `You voted for ${votedPlayer.name}.`);
+    io.to(data.id).emit('action-player-voted', votedPlayer);
+
+    const users = getRoomUsers(player.room);
+    checkGameEnd(player, users);
   });
 });
 

@@ -2,11 +2,12 @@ import express from 'express';
 import dotenv from 'dotenv';
 import http from 'http';
 import { Server } from 'socket.io';
+import validator from 'validator';
 import {
   userJoin, userLeave, getRoomUsers, getRoomHost, getCurrentUser,
 } from './users.js';
 import {
-  giveRole, increaseTurn, swapRoles, updateRole, castVote, cleanUp,
+  giveRole, increaseTurn, swapRoles, updateRole, castVote, cleanUp, addRoom, removeRoom, findRoom,
 } from './game.js';
 
 dotenv.config();
@@ -14,7 +15,10 @@ dotenv.config();
 const { PORT: port = 4000, CLIENT_URL: clientUrl } = process.env;
 
 const app = express();
+
 app.use(express.json());
+app.use(express.static('public'));
+app.use(express.urlencoded({ extended: true }));
 
 app.get('/', (req, res) => {
   res.send({ msg: 'I am the server for the game Hidden Traitor' });
@@ -58,10 +62,14 @@ io.on('connection', (socket) => {
       let traitor;
       let mostVotes = 0;
       let mostVotedPlayer;
+      let tie = false;
       users.forEach((user) => {
         if (user.newRole) updateRole(user.id);
         if (user.role === 'Traitor') {
           traitor = user;
+        }
+        if (user.votes && user.votes === mostVotes) {
+          tie = true;
         }
         if (user.votes && user.votes > mostVotes) {
           mostVotes = user.votes;
@@ -69,18 +77,55 @@ io.on('connection', (socket) => {
         }
       });
       cleanUp(users);
-      io.to(player.room).emit('game-end', { traitor, mostVotedPlayer });
+      io.to(player.room).emit('game-end', { traitor, mostVotedPlayer, tie });
     }
   }
 
-  // runs when a client joins
+  // creating a room
+  socket.on('form-create', ({ name, room }) => {
+    const trimmedName = name.replace(/\s+/g, '');
+    const trimmedRoom = room.replace(/\s+/g, '');
+
+    if (validator.isEmpty(trimmedName) || !validator.isLength(trimmedName, { min: 1, max: 8 })) {
+      io.to(socket.id).emit('form-create-fail', { trimmedName, trimmedRoom });
+    } else {
+      addRoom(trimmedRoom);
+      io.to(socket.id).emit('form-create-success', { trimmedName, trimmedRoom });
+    }
+  });
+
+  // joining a room
+  socket.on('form-join', ({ name, room }) => {
+    const trimmedName = name.replace(/\s+/g, '');
+    const trimmedRoom = room.replace(/\s+/g, '');
+
+    const users = getRoomUsers(room);
+    let nameTaken = false;
+    if (users) {
+      users.forEach((user) => {
+        if (user.name.toLowerCase() === trimmedName.toLowerCase()) {
+          nameTaken = true;
+          io.to(socket.id).emit('form-join-fail', { trimmedName, trimmedRoom, msg: 'Name taken!' });
+        }
+      });
+    }
+
+    if (!nameTaken) {
+      if (validator.isEmpty(trimmedName) || !validator.isLength(trimmedName, { min: 1, max: 8 })) {
+        io.to(socket.id).emit('form-join-fail', { trimmedName, trimmedRoom, msg: 'Name must be between 1 and 8 characters.' });
+      } else if (!findRoom(room)) {
+        io.to(socket.id).emit('form-join-fail', { trimmedName, trimmedRoom, msg: 'Game not found!' });
+      } else {
+        io.to(socket.id).emit('form-join-success', { trimmedName, trimmedRoom });
+      }
+    }
+  });
+
+  // runs after a client joins
   socket.on('join', ({ name, room }) => {
     const user = userJoin(socket.id, name, room);
 
     socket.join(user.room);
-
-    // broadcast (to all clients) when a client connects
-    socket.broadcast.to(user.room).emit('message', `${user.name} joined the game.`);
 
     // send user and room info
     io.to(user.room).emit('room-info', { room: user.room, users: getRoomUsers(user.room), host: getRoomHost(user.room) });
@@ -91,9 +136,16 @@ io.on('connection', (socket) => {
     const user = userLeave(socket.id);
 
     if (user) {
+      const users = getRoomUsers(user.room);
+
       io.to(user.room).emit('message', `${user.name} left the game.`);
+
+      if (users.length <= 0) {
+        removeRoom(user.room);
+      }
+
       // send user and room info
-      io.to(user.room).emit('room-info', { room: user.room, users: getRoomUsers(user.room), host: getRoomHost(user.room) });
+      io.to(user.room).emit('room-info', { room: user.room, users, host: getRoomHost(user.room) });
     }
   });
 

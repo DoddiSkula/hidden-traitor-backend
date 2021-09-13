@@ -1,6 +1,23 @@
 /* eslint-disable no-param-reassign */
 import { getCurrentUser } from './users.js';
 
+const rooms = [];
+
+export function addRoom(room) {
+  rooms.push(room);
+}
+
+export function removeRoom(room) {
+  const index = rooms.findIndex((r) => room === r);
+  if (index !== -1) {
+    rooms.splice(index, 1);
+  }
+}
+
+export function findRoom(room) {
+  return rooms.find((r) => room === r);
+}
+
 // randomly assign roles to players
 export function giveRole(users) {
   const roles = [];

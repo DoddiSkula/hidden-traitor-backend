@@ -12,7 +12,7 @@ import {
 
 dotenv.config();
 
-const { PORT: port = 4000, CLIENT_URL: clientUrl } = process.env;
+const { PORT: port = 4000 } = process.env;
 
 const app = express();
 
@@ -28,7 +28,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: clientUrl,
+    origin: '*',
     methods: ['GET', 'POST'],
   },
 });

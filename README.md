@@ -2,7 +2,7 @@
 
 Hidden Traitor is a multiplayer deduction game where players try to find out who the traitor is. 
 
-Live version available soon!
+>Play the game [here](https://hidden-traitor.herokuapp.com/)
 
 The [frontend](https://github.com/DoddiSkula/hidden-traitor) (client-side) is made with [React](https://reactjs.org/) and Socket.IO.
 
